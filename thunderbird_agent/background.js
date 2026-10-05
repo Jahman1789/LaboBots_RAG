@@ -906,8 +906,8 @@ browser.browserAction.onClicked.addListener(async () => {
   const win = await browser.windows.create({
     url: browser.runtime.getURL("popup/popup.html"),
     type: "popup",
-    width: 420,
-    height: 680,
+    width: 1024,
+    height: 880,
   });
   agentWindowId = win.id;
 });
