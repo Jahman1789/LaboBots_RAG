@@ -92,6 +92,16 @@ button.primary {
   font-weight: 600;
 }
 
+select, textarea, input[type="text"] {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+}
+
 #save-status { margin: 10px 0; }
 
 #rag-folders-list {

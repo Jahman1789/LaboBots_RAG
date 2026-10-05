@@ -26,6 +26,11 @@ const DEFAULT_SETTINGS = {
   ragPullIntervalMinutes: 60,
   ragAccountId: "", // "" = all accounts; set to one account's id to scope indexing/search to it
   ragFolderIds: [], // [] = every folder of the scoped account(s); otherwise only these folder ids
+
+  // Custom system prompt
+  customSystemPrompt: "",
+  customReplyEnabled: false,
+  customNewEmailEnabled: false,
 };
 
 const MAX_HISTORY = 20;
@@ -267,6 +272,30 @@ function buildHistoryContext(history, label = "reply") {
     .map((h, i) => `Previous ${label} example ${i + 1} (style reference only):\n${h.draft}`)
     .join("\n\n");
   return `\n\nHere are a few of this user's own previous ${label}s, for style reference only:\n\n${examples}`;
+}
+
+/**
+ * Resolves the system prompt content based on priority:
+ * 1. Popup override (session-only, highest priority)
+ * 2. Global custom prompt from settings (if enabled for this type)
+ * 3. Default system prompt
+ *
+ * Pure function — no browser/DOM dependencies. Exported for testing.
+ */
+function resolveSystemPrompt(defaultPrompt, settings, type, popupOverride) {
+  // Popup override takes precedence over everything
+  if (popupOverride && popupOverride.trim()) {
+    const trimmed = popupOverride.trim();
+    return defaultPrompt + "\n\nCustom instructions:\n\n" + trimmed;
+  }
+  // Global custom prompt (type-specific enable flag)
+  const enabledKey = type === "reply" ? "customReplyEnabled" : type === "newemail" ? "customNewEmailEnabled" : null;
+  if (enabledKey && settings && settings[enabledKey] && settings.customSystemPrompt && settings.customSystemPrompt.trim()) {
+    const trimmed = settings.customSystemPrompt.trim();
+    return defaultPrompt + "\n\nCustom instructions:\n\n" + trimmed;
+  }
+  // Default
+  return defaultPrompt;
 }
 
 /**
@@ -522,7 +551,7 @@ async function streamLiteLLM(settings, messages, onToken, signal) {
  * (runStreamed) reuses the SAME prompt-building code instead of duplicating this block: one
  * source of truth for what the model sees, whether or not the answer streams.
  */
-async function buildDraftMessages(email, steeringPrompt) {
+async function buildDraftMessages(email, steeringPrompt, customPromptOverride) {
   const settings = await getSettings();
   const historyContext = buildHistoryContext(settings.history);
   const attachmentsContext = buildAttachmentsContext(email.attachments);
@@ -543,6 +572,8 @@ async function buildDraftMessages(email, steeringPrompt) {
   const ragContext = Rag.buildContextBlock(ragChunks);
   const ownStyleContext = Rag.buildStyleContextBlock(ownStyleChunks);
 
+  const systemContent = resolveSystemPrompt(DRAFT_SYSTEM_PROMPT, settings, "reply", customPromptOverride);
+
   const userPrompt = `Original email
 From: ${email.from}
 Subject: ${email.subject}
@@ -555,14 +586,14 @@ ${steeringPrompt ? `Steering instructions from the user: ${steeringPrompt}` : "N
 Draft the reply now.`;
 
   return [
-    { role: "system", content: DRAFT_SYSTEM_PROMPT },
+    { role: "system", content: systemContent },
     { role: "user", content: userPrompt },
   ];
 }
 
-async function generateDraft({ email, steeringPrompt, backend, signal }) {
+async function generateDraft({ email, steeringPrompt, backend, signal, customSystemPromptOverride }) {
   const settings = await getSettings();
-  const messages = await buildDraftMessages(email, steeringPrompt);
+  const messages = await buildDraftMessages(email, steeringPrompt, customSystemPromptOverride);
   const draft = backend === "remote"
     ? await callLiteLLM(settings, messages, signal)
     : await callOllama(settings, messages, signal);
@@ -574,7 +605,7 @@ async function generateDraft({ email, steeringPrompt, backend, signal }) {
  * Builds the exact prompt (system + user message) for a brand-new email -- same split-out of
  * prompt building as buildDraftMessages, for the same reason (shared by the streaming path).
  */
-async function buildNewEmailMessages(to, subject, steeringPrompt) {
+async function buildNewEmailMessages(to, subject, steeringPrompt, customPromptOverride) {
   const settings = await getSettings();
   const historyContext = buildHistoryContext(settings.newEmailHistory || [], "email");
   const query = steeringPrompt || subject;
@@ -582,6 +613,8 @@ async function buildNewEmailMessages(to, subject, steeringPrompt) {
   const ownStyleChunks = settings.ragEnabled ? await Rag.search(query, { requireIsFromMe: true, topK: 3 }) : [];
   const ragContext = Rag.buildContextBlock(ragChunks);
   const ownStyleContext = Rag.buildStyleContextBlock(ownStyleChunks);
+
+  const systemContent = resolveSystemPrompt(NEW_EMAIL_SYSTEM_PROMPT, settings, "newemail", customPromptOverride);
 
   const userPrompt = `New email to compose (not a reply)
 ${to ? `To: ${to}` : "Recipient: not specified -- write generically."}
@@ -592,7 +625,7 @@ ${steeringPrompt ? `Instructions from the user: ${steeringPrompt}` : "No specifi
 Write the email now.`;
 
   return [
-    { role: "system", content: NEW_EMAIL_SYSTEM_PROMPT },
+    { role: "system", content: systemContent },
     { role: "user", content: userPrompt },
   ];
 }
@@ -621,9 +654,9 @@ function splitSubject(fullText, userSubject) {
  * Returns { draft, subject }: if the caller left `subject` blank, a leading "Subject: ..." line
  * the model was asked to produce is split off and returned separately, never left in the body.
  */
-async function generateNewEmail({ to, subject, steeringPrompt, backend, signal }) {
+async function generateNewEmail({ to, subject, steeringPrompt, backend, signal, customSystemPromptOverride }) {
   const settings = await getSettings();
-  const messages = await buildNewEmailMessages(to, subject, steeringPrompt);
+  const messages = await buildNewEmailMessages(to, subject, steeringPrompt, customSystemPromptOverride);
   const raw = backend === "remote"
     ? await callLiteLLM(settings, messages, signal)
     : await callOllama(settings, messages, signal);
@@ -696,9 +729,10 @@ async function runStreamed(port, action, payload) {
     // pre-first-token failure, i.e. the same "fallback" case as a request that never produced
     // a single token.
     const settings = await getSettings();
+    const customSystemPromptOverride = payload.customSystemPromptOverride || "";
     const messages = action === "generateNewEmail"
-      ? await buildNewEmailMessages(payload.to, payload.subject, payload.steeringPrompt)
-      : await buildDraftMessages(payload.email, payload.steeringPrompt);
+      ? await buildNewEmailMessages(payload.to, payload.subject, payload.steeringPrompt, customSystemPromptOverride)
+      : await buildDraftMessages(payload.email, payload.steeringPrompt, customSystemPromptOverride);
     const full = payload.backend === "remote"
       ? await streamLiteLLM(settings, messages, onToken, ac.signal)
       : await streamOllama(settings, messages, onToken, ac.signal);

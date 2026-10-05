@@ -41,6 +41,13 @@ const newRegenerateBtn = document.getElementById("new-regenerate-btn");
 const newInsertBtn = document.getElementById("new-insert-btn");
 const newStopBtn = document.getElementById("new-stop-btn");
 
+const customPromptOverrideEl = document.getElementById("custom-prompt-override");
+const customPromptTextEl = document.getElementById("custom-prompt-text");
+const customPromptFieldEl = document.getElementById("custom-prompt-field");
+const newCustomPromptOverrideEl = document.getElementById("new-custom-prompt-override");
+const newCustomPromptTextEl = document.getElementById("new-custom-prompt-text");
+const newCustomPromptFieldEl = document.getElementById("new-custom-prompt-field");
+
 /*
  * The elements a streaming session needs to drive, grouped per tab so beginStream() and
  * finalizeSession() can lock down and restore BOTH tabs from one place instead of repeating
@@ -441,9 +448,14 @@ function startStreaming(tab, action, payload) {
 }
 
 function generate() {
+  if (!currentEmail) {
+    setStatus("No email selected. Open or select one email first.");
+    return;
+  }
   startStreaming("reply", "generateDraft", {
     email: currentEmail,
     steeringPrompt: steeringEl.value.trim(),
+    customSystemPromptOverride: customPromptOverrideEl.checked ? customPromptTextEl.value.trim() : "",
   });
 }
 
@@ -461,6 +473,10 @@ function stopGeneration() {
 }
 
 async function insertReply() {
+  if (!currentEmail) {
+    setStatus("No email selected.");
+    return;
+  }
   insertBtn.disabled = true;
   setStatus("Opening the reply window...");
 
@@ -495,6 +511,7 @@ function generateNew() {
     to: newToEl.value.trim(),
     subject: newSubjectEl.value.trim(),
     steeringPrompt: newSteeringEl.value.trim(),
+    customSystemPromptOverride: newCustomPromptOverrideEl.checked ? newCustomPromptTextEl.value.trim() : "",
   });
 }
 
@@ -542,6 +559,13 @@ tabNewEl.addEventListener("click", () => showTab("new"));
 optionsLink.addEventListener("click", (e) => {
   e.preventDefault();
   browser.runtime.openOptionsPage();
+});
+
+customPromptOverrideEl.addEventListener("change", () => {
+  customPromptFieldEl.hidden = !customPromptOverrideEl.checked;
+});
+newCustomPromptOverrideEl.addEventListener("change", () => {
+  newCustomPromptFieldEl.hidden = !newCustomPromptOverrideEl.checked;
 });
 
 init();

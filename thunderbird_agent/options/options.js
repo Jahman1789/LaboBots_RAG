@@ -19,6 +19,10 @@ async function load() {
   await loadRagAccounts(resp.data.ragAccountId || "");
   await loadRagFolders(resp.data.ragAccountId || "", resp.data.ragFolderIds || []);
   await refreshRagStatus();
+
+  document.getElementById("custom-reply-enabled").checked = !!resp.data.customReplyEnabled;
+  document.getElementById("custom-newemail-enabled").checked = !!resp.data.customNewEmailEnabled;
+  document.getElementById("custom-system-prompt").value = resp.data.customSystemPrompt || "";
 }
 
 async function loadRagAccounts(selectedId) {
@@ -80,6 +84,9 @@ async function save() {
   settings.ragFolderIds = settings.ragAccountId ? getSelectedFolderIds() : [];
   settings.ragEmbedModel = document.getElementById("rag-embed-model").value.trim() || "nomic-embed-text";
   settings.ragPullIntervalMinutes = parseInt(document.getElementById("rag-pull-interval").value, 10) || 60;
+  settings.customReplyEnabled = document.getElementById("custom-reply-enabled").checked;
+  settings.customNewEmailEnabled = document.getElementById("custom-newemail-enabled").checked;
+  settings.customSystemPrompt = document.getElementById("custom-system-prompt").value.trim();
   await send("saveSettings", { settings });
 
   const statusEl = document.getElementById("save-status");

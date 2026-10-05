@@ -117,6 +117,27 @@
   </section>
 
   <section>
+    <h2>Custom system prompt</h2>
+    <p class="muted">
+      Additional instructions appended to the default system prompt. The same text is used for
+      both reply drafts and new emails; enable the checkboxes below per type. You can also
+      override the text temporarily from the agent window (not saved).
+    </p>
+    <label class="field checkbox-field">
+      <input id="custom-reply-enabled" type="checkbox">
+      <span>Enable for reply drafts</span>
+    </label>
+    <label class="field checkbox-field">
+      <input id="custom-newemail-enabled" type="checkbox">
+      <span>Enable for new email drafts</span>
+    </label>
+    <label class="field">
+      <span>Custom system prompt</span>
+      <textarea id="custom-system-prompt" rows="16" placeholder="e.g. Always write in French. Keep responses under 100 words."></textarea>
+    </label>
+  </section>
+
+  <section>
     <h2>Local history</h2>
     <p class="muted">
       Recent drafts are kept locally as style context for future generations (see the notebook's
