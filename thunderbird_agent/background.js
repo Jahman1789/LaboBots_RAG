@@ -281,6 +281,70 @@ async function fetchOrExplain(baseUrl, hint, url, init) {
   }
 }
 
+/**
+ * List available LLM models via the OpenAI-compatible /v1/models endpoint.
+ * Ollama exposes this at /v1/models (OpenAI-compatible proxy built into recent versions)
+ * and returns { "data": [{ "id": "model-name", ... }] }.
+ * LiteLLM exposes the same endpoint with the same format.
+ * For Ollama specifically, we also try /api/models (native format: { "models": [{ "name": "..." }] })
+ * as a fallback in case the /v1/models proxy is not enabled.
+ *
+ * `signal` (AbortSignal, optional) lets the caller cancel the request.
+ */
+const LIST_MODELS_TIMEOUT = 30000; // 30 seconds max for models list
+
+async function listModels(settings, backend) {
+  const baseUrl = backend === "local" ? settings.ollama_url : settings.litellm_url;
+  const url = `${baseUrl}/v1/models`;
+  const headers = { "Content-Type": "application/json" };
+  if (backend === "remote" && settings.litellm_key) {
+    headers.Authorization = `Bearer ${settings.litellm_key}`;
+  }
+
+  const ac = new AbortController();
+  const timeout = setTimeout(() => ac.abort(), LIST_MODELS_TIMEOUT);
+  try {
+    let resp;
+    try {
+      resp = await fetch(url, { method: "GET", headers, signal: ac.signal });
+    } catch (fetchErr) {
+      // The AbortController timeout fires too — suppress it
+      const wrapped = new Error(`${baseUrl}: ${fetchErr.message || "NetworkError"}`);
+      wrapped.name = fetchErr.name; // preserve AbortError for the outer catch
+      throw wrapped;
+    }
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error(`Authentication failed (HTTP ${resp.status}) -- check your ${backend === "local" ? "Ollama" : "LiteLLM"} key.`);
+      }
+      throw new Error(`${baseUrl} returned HTTP ${resp.status}. ${text}`);
+    }
+
+    const json = await resp.json();
+
+    // OpenAI-compatible format: { "data": [{ "id": "model-name", ... }] }
+    if (json.data && Array.isArray(json.data)) {
+      return json.data.map((m) => ({ id: m.id, owned_by: m.owned_by || "" }));
+    }
+
+    // Ollama native fallback: { "models": [{ "name": "model-name", ... }] }
+    if (json.models && Array.isArray(json.models)) {
+      return json.models.map((m) => ({ id: m.name, owned_by: "" }));
+    }
+
+    throw new Error(`Unexpected response format from ${baseUrl}/v1/models -- expected { "data": [...] } or { "models": [...] }`);
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === "AbortError") {
+      throw new Error(`Model listing timed out after ${LIST_MODELS_TIMEOUT / 1000}s -- is the server reachable?`);
+    }
+    throw err;
+  }
+}
+
 // `signal` (optional, default undefined) lets the streaming-path fallback abort an in-flight
 // non-streaming call; the one-shot handleMessage path passes nothing and behaves exactly as before.
 async function callOllama(settings, messages, signal) {
@@ -811,6 +875,8 @@ async function handleMessage(message) {
       return Rag.pullNow();
     case "ragClearIndex":
       return Rag.clearIndex();
+    case "listModels":
+      return listModels(message.settings, message.backend);
     default:
       throw new Error(`Unknown action: ${message.action}`);
   }
