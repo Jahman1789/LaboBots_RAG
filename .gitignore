@@ -36,4 +36,5 @@ requirements-lock.txt
 participant-keys.tsv
 
 # Local assistant instructions (Claude Code)
-CLAUDE.md
+**/CLAUDE.md
+**/tests

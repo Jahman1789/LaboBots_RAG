@@ -5,10 +5,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Check des dépendances
-tools=('zip' 'python3')
+tools=('zip')
 for i in "${!tools[@]}" ; do type -fP "${tools[i]}" &> /dev/null || { >&2 printf "%b\n" "[ERROR] ${tools[i]} is missing"; exit 1; }; done
 
-version=$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')
+version="$(grep -oP '"version":\s*"\K[^"]*' manifest.json)"
 out="dist/labobots-mail-agent-${version}.xpi"
 
 mkdir -p dist
